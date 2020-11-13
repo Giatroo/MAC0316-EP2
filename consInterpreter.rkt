@@ -3,22 +3,25 @@
 
 ; Basic expressions
 (define-type ExprC
-  [numC  (n : number)]
-  [idC   (s : symbol)]
-  [plusC (l : ExprC) (r : ExprC)]
-  [multC (l : ExprC) (r : ExprC)]
-  [lamC  (arg : symbol) (body : ExprC)]
-  [appC  (fun : ExprC) (arg : ExprC)]
-  [ifC   (c : ExprC) (y : ExprC) (n : ExprC)]
-  [seqC  (e1 : ExprC) (e2 : ExprC)]
-  [setC  (var : symbol) (arg : ExprC)]
-  [letC  (name : symbol) (arg : ExprC) (body : ExprC)]
+  [numC     (n : number)]
+  [boolC    (b : boolean)]
+  [idC      (s : symbol)]
+  [plusC    (l : ExprC) (r : ExprC)]
+  [multC    (l : ExprC) (r : ExprC)]
+  [lamC     (arg : symbol) (body : ExprC)]
+  [appC     (fun : ExprC) (arg : ExprC)]
+  [ifC      (c : ExprC) (y : ExprC) (n : ExprC)]
+  [seqC     (e1 : ExprC) (e2 : ExprC)]
+  [setC     (var : symbol) (arg : ExprC)]
+  [letC     (name : symbol) (arg : ExprC) (body : ExprC)]
+  [equal?C  (e1 : ExprC) (e2 : ExprC)]
   )
 
 
 ; Sugared expressions
 (define-type ExprS
   [numS    (n : number)]
+  [boolS   (b : boolean)]
   [idS     (s : symbol)]
   [lamS    (arg : symbol) (body : ExprS)]
   [appS    (fun : ExprS) (arg : ExprS)]
@@ -30,6 +33,7 @@
   [seqS    (e1 : ExprS) (e2 : ExprS)]
   [setS    (var : symbol) (arg : ExprS)]
   [letS    (name : symbol) (arg : ExprS) (body : ExprS)]
+  [equal?S (e1 : ExprS) (e2 : ExprS)]
   )
 
 
@@ -37,6 +41,7 @@
 (define (desugar [as : ExprS]) : ExprC
   (type-case ExprS as
     [numS    (n)        (numC n)]
+    [boolS   (b)        (boolC b)]
     [idS     (s)        (idC s)]
     [lamS    (a b)      (lamC a (desugar b))]
     [appS    (fun arg)  (appC (desugar fun) (desugar arg))]
@@ -48,12 +53,14 @@
     [seqS    (e1 e2)    (seqC (desugar e1) (desugar e2))]
     [setS    (var expr) (setC  var (desugar expr))]
     [letS    (n a b)    (letC n (desugar a) (desugar b))]
+    [equal?S (e1 e2)    (equal?C (desugar e1) (desugar e2))]
     ))
 
 
 ; We need a new value for the box
 (define-type Value
   [numV  (n : number)]
+  [boolV (b : boolean)]
   [closV (arg : symbol) (body : ExprC) (env : Env)]
   )
 
@@ -99,6 +106,8 @@
     ; Numbers just evaluta to their equivalent Value
     [numC (n) (numV n)]
 
+    [boolC (b) (boolV b)]
+
     ; IDs are retrieved from the Env and unboxed
     [idC (n) (unbox (lookup n env))]
 
@@ -135,7 +144,10 @@
           (let* ([new-bind (bind name (box (interp arg env)))]
                  [new-env (extend-env new-bind env)])
             (interp body new-env))]
-    ))
+
+    [equal?C (e1 e2) (boolV (equal? (interp e1 env) (interp e2 env)))]
+    )
+  )
 
 
 ; Parser
@@ -158,9 +170,20 @@
          [(let) (letS (s-exp->symbol (first (s-exp->list (first (s-exp->list (second sl))))))
                       (parse (second (s-exp->list (first (s-exp->list (second sl))))))
                       (parse (third sl)))]
+         [(equal?) (equal?S (parse (second sl)) (parse (third sl)))]
          [else (error 'parse "invalid list input")]))]
     [else (error 'parse "invalid input")]))
 
 
 ; Facilitator
 (define (interpS [s : s-expression]) (interp (desugar (parse s)) mt-env))
+
+; Testes
+(test (interpS '(equal? 1 1)) (boolV #t))
+
+(test (interpS '(equal? 1 2)) (boolV #f))
+
+(test (interpS '(equal? (+ 4 2) (- 8 2))) (boolV #t))
+
+(test (interpS '(equal? (lambda x (+ x x)) (lambda y (+ y y))))
+      (boolV #f))
