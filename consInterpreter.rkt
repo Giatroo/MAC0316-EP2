@@ -59,9 +59,11 @@
 
 ; We need a new value for the box
 (define-type Value
-  [numV  (n : number)]
-  [boolV (b : boolean)]
-  [closV (arg : symbol) (body : ExprC) (env : Env)]
+  [numV     (n : number)]
+  [boolV    (b : boolean)]
+  [closV    (arg : symbol) (body : ExprC) (env : Env)]
+  [suspendV (body : ExprC) (env : Env)]
+  ; [cellV    (first : ValueC) (second : ValueC)]
   )
 
 
@@ -100,6 +102,15 @@
         [else
              (error 'num* "One of the arguments is not a number")]))
 
+(define (strict [v : Value]) : Value
+  (type-case Value v
+    [numV     (n) v]
+    [boolV    (b) v]
+    [closV    (a b e) v]
+    [suspendV (b e) (strict (interp b e))]
+  )
+)
+
 ; Interpreter
 (define (interp [a : ExprC] [env : Env]) : Value
   (type-case ExprC a
@@ -116,21 +127,21 @@
 
     ; Application of function
     [appC (f a)
-          (let ([f-value (interp f env)])
+          (local ([define f-value (strict (interp f env))])
             (interp (closV-body f-value)
                     (extend-env
-                        (bind (closV-arg f-value) (box (interp a env)))
+                        (bind (closV-arg f-value) (box (suspendV a env)))
                         (closV-env f-value)
                     )))]
 
     ; Sum two numbers using auxiliary function
-    [plusC (l r) (num+ (interp l env) (interp r env))]
+    [plusC (l r) (num+ (strict (interp l env)) (strict (interp r env)))]
 
     ; Multiplies two numbers using auxiliary function
-    [multC (l r) (num* (interp l env) (interp r env))]
+    [multC (l r) (num* (strict (interp l env)) (strict (interp r env)))]
 
     ; Conditional operator
-    [ifC (c s n) (if (zero? (numV-n (interp c env))) (interp n env) (interp s env))]
+    [ifC (c s n) (if (zero? (numV-n (interp c env))) (strict (interp n env)) (strict (interp s env)))]
 
     ; Sequence of operations
     [seqC (b1 b2) (begin (interp b1 env) (interp b2 env))] ; No side effect between expressions!
