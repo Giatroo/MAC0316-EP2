@@ -141,7 +141,7 @@
     [multC (l r) (num* (strict (interp l env)) (strict (interp r env)))]
 
     ; Conditional operator
-    [ifC (c s n) (if (zero? (numV-n (interp c env))) (strict (interp n env)) (strict (interp s env)))]
+    [ifC (c s n) (if (zero? (numV-n (strict (interp c env)))) (interp n env) (interp s env))]
 
     ; Sequence of operations
     [seqC (b1 b2) (begin (interp b1 env) (interp b2 env))] ; No side effect between expressions!
@@ -156,7 +156,7 @@
                  [new-env (extend-env new-bind env)])
             (interp body new-env))]
 
-    [equal?C (e1 e2) (boolV (equal? (interp e1 env) (interp e2 env)))]
+    [equal?C (e1 e2) (boolV (equal? (strict (interp e1 env)) (strict (interp e2 env))))]
     )
   )
 
