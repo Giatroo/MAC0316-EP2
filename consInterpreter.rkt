@@ -11,7 +11,6 @@
   [lamC     (arg : symbol) (body : ExprC)]
   [appC     (fun : ExprC) (arg : ExprC)]
   [ifC      (c : ExprC) (y : ExprC) (n : ExprC)]
-  [seqC     (e1 : ExprC) (e2 : ExprC)]
   [setC     (var : symbol) (arg : ExprC)]
   [letC     (name : symbol) (arg : ExprC) (body : ExprC)]
   [equal?C  (e1 : ExprC) (e2 : ExprC)]
@@ -30,7 +29,6 @@
   [uminusS (e : ExprS)]
   [multS   (l : ExprS) (r : ExprS)]
   [ifS     (c : ExprS) (y : ExprS) (n : ExprS)]
-  [seqS    (e1 : ExprS) (e2 : ExprS)]
   [setS    (var : symbol) (arg : ExprS)]
   [letS    (name : symbol) (arg : ExprS) (body : ExprS)]
   [equal?S (e1 : ExprS) (e2 : ExprS)]
@@ -50,7 +48,6 @@
     [bminusS (l r)      (plusC (desugar l) (multC (numC -1) (desugar r)))]
     [uminusS (e)        (multC (numC -1) (desugar e))]
     [ifS     (c s n)    (ifC (desugar c) (desugar s) (desugar n))]
-    [seqS    (e1 e2)    (seqC (desugar e1) (desugar e2))]
     [setS    (var expr) (setC  var (desugar expr))]
     [letS    (n a b)    (letC n (desugar a) (desugar b))]
     [equal?S (e1 e2)    (equal?C (desugar e1) (desugar e2))]
@@ -143,18 +140,15 @@
     ; Conditional operator
     [ifC (c s n) (if (zero? (numV-n (strict (interp c env)))) (interp n env) (interp s env))]
 
-    ; Sequence of operations
-    [seqC (b1 b2) (begin (interp b1 env) (interp b2 env))] ; No side effect between expressions!
-
     ; Attribution of variables
     [setC (var val) (let ([b (lookup var env)])
                       (begin (set-box! b (interp val env)) (unbox b)))]
 
     ; Declaration of variable
     [letC (name arg body)
-          (let* ([new-bind (bind name (box (interp arg env)))]
+          (let* ([new-bind (bind name (box (suspendV arg env)))]
                  [new-env (extend-env new-bind env)])
-            (interp body new-env))]
+            (strict (interp body new-env)))]
 
     [equal?C (e1 e2) (boolV (equal? (strict (interp e1 env)) (strict (interp e2 env))))]
     )
@@ -176,7 +170,6 @@
          [(lambda) (lamS (s-exp->symbol (second sl)) (parse (third sl)))] ; definição
          [(call) (appS (parse (second sl)) (parse (third sl)))]
          [(if) (ifS (parse (second sl)) (parse (third sl)) (parse (fourth sl)))]
-         [(seq) (seqS (parse (second sl)) (parse (third sl)))]
          [(:=) (setS (s-exp->symbol (second sl)) (parse (third sl)))]
          [(let) (letS (s-exp->symbol (first (s-exp->list (first (s-exp->list (second sl))))))
                       (parse (second (s-exp->list (first (s-exp->list (second sl))))))
