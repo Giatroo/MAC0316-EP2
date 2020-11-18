@@ -4,7 +4,6 @@
 ; Basic expressions
 (define-type ExprC
   [numC     (n : number)]
-  [boolC    (b : boolean)]
   [idC      (s : symbol)]
   [plusC    (l : ExprC) (r : ExprC)]
   [multC    (l : ExprC) (r : ExprC)]
@@ -12,8 +11,15 @@
   [appC     (fun : ExprC) (arg : ExprC)]
   [ifC      (c : ExprC) (y : ExprC) (n : ExprC)]
   [setC     (var : symbol) (arg : ExprC)]
-  [letC     (name : symbol) (arg : ExprC) (body : ExprC)]
   [equal?C  (e1 : ExprC) (e2 : ExprC)]
+  [letC     (name : symbol) (arg : ExprC) (body : ExprC)]
+  [boolC    (b : boolean)]
+  [consC (car : ExprC) (cdr : ExprC)]
+  [carC  (cell : ExprC) ]
+  [cdrC (cell : ExprC)]
+  [displayC (exp : ExprC)]
+  [quoteC  (sym : symbol)]
+  [nullC  ]
   )
 
 
@@ -32,7 +38,13 @@
   [setS    (var : symbol) (arg : ExprS)]
   [letS    (name : symbol) (arg : ExprS) (body : ExprS)]
   [equal?S (e1 : ExprS) (e2 : ExprS)]
-  )
+  [consS (car : ExprS) (cdr : ExprS)]
+  [carS (cell : ExprS) ]
+  [cdrS (cell : ExprS)]
+  [displayS (exp : ExprS)]
+  [quoteS  (sym : symbol)]
+  [nullS ]
+)
 
 
 ; Removing the sugar
@@ -51,16 +63,24 @@
     [setS    (var expr) (setC  var (desugar expr))]
     [letS    (n a b)    (letC n (desugar a) (desugar b))]
     [equal?S (e1 e2)    (equal?C (desugar e1) (desugar e2))]
+    [consS   (car cdr) (consC (desugar car) (desugar cdr))]
+    [carS    (exp)     (carC (desugar  exp)) ]
+    [cdrS    (exp)     (cdrC (desugar  exp)) ]
+    [displayS (exp)    (displayC (desugar exp))]
+    [quoteS (sym) (quoteC sym)]
+    [nullS  () (nullC)]
     ))
 
 
 ; We need a new value for the box
 (define-type Value
-  [numV     (n : number)]
-  [boolV    (b : boolean)]
-  [closV    (arg : symbol) (body : ExprC) (env : Env)]
+  [numV  (n : number)]
+  [boolV (b : boolean)]
+  [nullV ]
+  [quoteV (symb : symbol)]
+  [closV (arg : symbol) (body : ExprC) (env : Env)]
+  [cellV (first : Value) (second : Value)]
   [suspendV (body : ExprC) (env : Env)]
-  ; [cellV    (first : ValueC) (second : ValueC)]
   )
 
 
@@ -151,6 +171,22 @@
             (strict (interp body new-env)))]
 
     [equal?C (e1 e2) (boolV (equal? (strict (interp e1 env)) (strict (interp e2 env))))]
+
+    ; Cell operations
+    [consC (car cdr)
+           (cellV (interp car env) (interp cdr env))]
+    [carC  (exp) (cellV-first (interp exp env))]
+    [cdrC  (exp) (cellV-second (interp exp env))]
+    ;Display values
+    [displayC (exp) (let ((value (interp exp env)))
+                      (begin (print-value (interp exp env))
+                             (display ";") ; no newline in plai-typed, we use ";"
+                             value))]
+    ;Symbol
+    [quoteC (sym) (quoteV sym)]
+    ;Null
+    [nullC  () (nullV)]
+
     )
   )
 
@@ -174,6 +210,11 @@
          [(let) (letS (s-exp->symbol (first (s-exp->list (first (s-exp->list (second sl))))))
                       (parse (second (s-exp->list (first (s-exp->list (second sl))))))
                       (parse (third sl)))]
+             [(cons) (consS (parse (second sl)) (parse (third sl)))]
+             [(car) (carS (parse (second sl)))]
+             [(cdr) (cdrS (parse (second sl)))]
+             [(display)(displayS (parse (second sl)))]
+             [(quote) (quoteS (s-exp->symbol (second sl)))]
          [(equal?) (equal?S (parse (second sl)) (parse (third sl)))]
          [else (error 'parse "invalid list input")]))]
     [else (error 'parse "invalid input")]))
@@ -182,7 +223,44 @@
 ; Facilitator
 (define (interpS [s : s-expression]) (interp (desugar (parse s)) mt-env))
 
-; Testes
+; Printing
+(define (print-value [value : Value ] ) : void
+
+                      (type-case Value value
+                        [numV  (n) (display n)]
+                        [quoteV (symb) (display symb)]
+                        [closV (arg body env)
+                               (begin (display "<<")
+                                      (display "lambda(")
+                                      (display arg)
+                                      (display ")")
+                                      (display body)
+                                      (display ";")
+                                      (display env)
+                                      (display ">>"))]
+
+                        [cellV (first second)
+                               (begin (display "(")
+                                      (print-list value)
+                                      (display ")")
+                                      )
+                               ]
+                        [nullV ()
+                               (display '())]))
+(define (print-list cell) : void
+  (begin
+         (print-value (cellV-first cell))
+         (display " ")
+         (let ([rest (cellV-second cell)])
+           (type-case Value rest
+             [nullV () (display "") ]; null at the end of the list is not printed
+             [cellV (first second) (print-list rest)]
+             [else (begin (display ".")
+                        (print-value (cellV-second cell)))]))
+         )
+  )
+
+; Exemplos
 (test (interpS '(equal? 1 1)) (boolV #t))
 
 (test (interpS '(equal? 1 2)) (boolV #f))
@@ -191,3 +269,11 @@
 
 (test (interpS '(equal? (lambda x (+ x x)) (lambda y (+ y y))))
       (boolV #f))
+
+;Esta cria uma funcao recursiva fun e imprime o valor do parametro a cada chamada.
+ (interpS '(let ((fun ()))
+              (seq (:= fun (lambda x (if x (seq (display x)
+                                                (call fun (- x 1)))
+                                         x)))
+                   (call fun 8))))
+
