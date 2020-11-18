@@ -10,7 +10,7 @@
   [lamC     (arg : symbol) (body : ExprC)]
   [appC     (fun : ExprC) (arg : ExprC)]
   [ifC      (c : ExprC) (y : ExprC) (n : ExprC)]
-  [setC     (var : symbol) (arg : ExprC)]
+  [seqC  (e1 : ExprC) (e2 : ExprC)]
   [equal?C  (e1 : ExprC) (e2 : ExprC)]
   [letC     (name : symbol) (arg : ExprC) (body : ExprC)]
   [boolC    (b : boolean)]
@@ -35,7 +35,7 @@
   [uminusS (e : ExprS)]
   [multS   (l : ExprS) (r : ExprS)]
   [ifS     (c : ExprS) (y : ExprS) (n : ExprS)]
-  [setS    (var : symbol) (arg : ExprS)]
+  [seqS    (e1 : ExprS) (e2 : ExprS)]
   [letS    (name : symbol) (arg : ExprS) (body : ExprS)]
   [equal?S (e1 : ExprS) (e2 : ExprS)]
   [consS (car : ExprS) (cdr : ExprS)]
@@ -60,7 +60,7 @@
     [bminusS (l r)      (plusC (desugar l) (multC (numC -1) (desugar r)))]
     [uminusS (e)        (multC (numC -1) (desugar e))]
     [ifS     (c s n)    (ifC (desugar c) (desugar s) (desugar n))]
-    [setS    (var expr) (setC  var (desugar expr))]
+    [seqS    (e1 e2)    (seqC (desugar e1) (desugar e2))]
     [letS    (n a b)    (letC n (desugar a) (desugar b))]
     [equal?S (e1 e2)    (equal?C (desugar e1) (desugar e2))]
     [consS   (car cdr) (consC (desugar car) (desugar cdr))]
@@ -123,7 +123,10 @@
   (type-case Value v
     [numV     (n) v]
     [boolV    (b) v]
+    [nullV    ()  v]
+    [quoteV   (s) v]
     [closV    (a b e) v]
+    [cellV    (f s) v] ; <---- PROVAVELMENTE VOU MUDAR ISSO
     [suspendV (b e) (strict (interp b e))]
   )
 )
@@ -160,9 +163,8 @@
     ; Conditional operator
     [ifC (c s n) (if (zero? (numV-n (strict (interp c env)))) (interp n env) (interp s env))]
 
-    ; Attribution of variables
-    [setC (var val) (let ([b (lookup var env)])
-                      (begin (set-box! b (interp val env)) (unbox b)))]
+    ; Sequence of operations
+    [seqC (b1 b2) (begin (interp b1 env) (interp b2 env))] ; No side effect between expressions!
 
     ; Declaration of variable
     [letC (name arg body)
@@ -198,25 +200,27 @@
     [(s-exp-symbol? s) (idS (s-exp->symbol s))]
     [(s-exp-list? s)
      (let ([sl (s-exp->list s)])
-       (case (s-exp->symbol (first sl))
-         [(+) (plusS (parse (second sl)) (parse (third sl)))]
-         [(*) (multS (parse (second sl)) (parse (third sl)))]
-         [(-) (bminusS (parse (second sl)) (parse (third sl)))]
-         [(~) (uminusS (parse (second sl)))]
-         [(lambda) (lamS (s-exp->symbol (second sl)) (parse (third sl)))] ; definição
-         [(call) (appS (parse (second sl)) (parse (third sl)))]
-         [(if) (ifS (parse (second sl)) (parse (third sl)) (parse (fourth sl)))]
-         [(:=) (setS (s-exp->symbol (second sl)) (parse (third sl)))]
-         [(let) (letS (s-exp->symbol (first (s-exp->list (first (s-exp->list (second sl))))))
-                      (parse (second (s-exp->list (first (s-exp->list (second sl))))))
-                      (parse (third sl)))]
+       (if (empty? sl)
+           (nullS)
+           (case (s-exp->symbol (first sl))
+             [(+) (plusS (parse (second sl)) (parse (third sl)))]
+             [(*) (multS (parse (second sl)) (parse (third sl)))]
+             [(-) (bminusS (parse (second sl)) (parse (third sl)))]
+             [(~) (uminusS (parse (second sl)))]
+             [(lambda) (lamS (s-exp->symbol (second sl)) (parse (third sl)))] ; definição
+             [(call) (appS (parse (second sl)) (parse (third sl)))]
+             [(if) (ifS (parse (second sl)) (parse (third sl)) (parse (fourth sl)))]
+             [(seq) (seqS (parse (second sl)) (parse (third sl)))]
+             [(let) (letS (s-exp->symbol (first (s-exp->list (first (s-exp->list (second sl))))))
+                          (parse (second (s-exp->list (first (s-exp->list (second sl))))))
+                          (parse (third sl)))]
              [(cons) (consS (parse (second sl)) (parse (third sl)))]
              [(car) (carS (parse (second sl)))]
              [(cdr) (cdrS (parse (second sl)))]
              [(display)(displayS (parse (second sl)))]
              [(quote) (quoteS (s-exp->symbol (second sl)))]
-         [(equal?) (equal?S (parse (second sl)) (parse (third sl)))]
-         [else (error 'parse "invalid list input")]))]
+             [(equal?) (equal?S (parse (second sl)) (parse (third sl)))]
+             [else (error 'parse "invalid list input")])))]
     [else (error 'parse "invalid input")]))
 
 
@@ -225,28 +229,31 @@
 
 ; Printing
 (define (print-value [value : Value ] ) : void
+    (type-case Value value
+      [numV   (n)     (display n)]
+      [boolV  (b)    (display b)]
+      [quoteV (symb) (display symb)]
+      [closV  (arg body env)
+             (begin (display "<<")
+                    (display "lambda(")
+                    (display arg)
+                    (display ")")
+                    (display body)
+                    (display ";")
+                    (display env)
+                    (display ">>"))
+             ]
+      [cellV (first second)
+             (begin (display "(")
+                    (print-list value)
+                    (display ")")
+                    )
+             ]
+      [nullV () (display '())]
+      [suspendV (b e) (display "suspV")]
+   )
+)
 
-                      (type-case Value value
-                        [numV  (n) (display n)]
-                        [quoteV (symb) (display symb)]
-                        [closV (arg body env)
-                               (begin (display "<<")
-                                      (display "lambda(")
-                                      (display arg)
-                                      (display ")")
-                                      (display body)
-                                      (display ";")
-                                      (display env)
-                                      (display ">>"))]
-
-                        [cellV (first second)
-                               (begin (display "(")
-                                      (print-list value)
-                                      (display ")")
-                                      )
-                               ]
-                        [nullV ()
-                               (display '())]))
 (define (print-list cell) : void
   (begin
          (print-value (cellV-first cell))
@@ -269,11 +276,4 @@
 
 (test (interpS '(equal? (lambda x (+ x x)) (lambda y (+ y y))))
       (boolV #f))
-
-;Esta cria uma funcao recursiva fun e imprime o valor do parametro a cada chamada.
- (interpS '(let ((fun ()))
-              (seq (:= fun (lambda x (if x (seq (display x)
-                                                (call fun (- x 1)))
-                                         x)))
-                   (call fun 8))))
 
