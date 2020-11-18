@@ -10,39 +10,43 @@
   [lamC     (arg : symbol) (body : ExprC)]
   [appC     (fun : ExprC) (arg : ExprC)]
   [ifC      (c : ExprC) (y : ExprC) (n : ExprC)]
-  [seqC  (e1 : ExprC) (e2 : ExprC)]
+  [seqC     (e1 : ExprC) (e2 : ExprC)]
   [equal?C  (e1 : ExprC) (e2 : ExprC)]
   [letC     (name : symbol) (arg : ExprC) (body : ExprC)]
+  [let*C    (name1 : symbol) (arg1 : ExprC) (name2 : symbol) (arg2 : ExprC) (body : ExprC)]
+  [letrecC  (name : symbol) (arg : ExprC) (body : ExprC)]
   [boolC    (b : boolean)]
-  [consC (car : ExprC) (cdr : ExprC)]
-  [carC  (cell : ExprC) ]
-  [cdrC (cell : ExprC)]
+  [consC    (car : ExprC) (cdr : ExprC)]
+  [carC     (cell : ExprC) ]
+  [cdrC     (cell : ExprC)]
   [displayC (exp : ExprC)]
-  [quoteC  (sym : symbol)]
+  [quoteC   (sym : symbol)]
   [nullC  ]
   )
 
 
 ; Sugared expressions
 (define-type ExprS
-  [numS    (n : number)]
-  [boolS   (b : boolean)]
-  [idS     (s : symbol)]
-  [lamS    (arg : symbol) (body : ExprS)]
-  [appS    (fun : ExprS) (arg : ExprS)]
-  [plusS   (l : ExprS) (r : ExprS)]
-  [bminusS (l : ExprS) (r : ExprS)]
-  [uminusS (e : ExprS)]
-  [multS   (l : ExprS) (r : ExprS)]
-  [ifS     (c : ExprS) (y : ExprS) (n : ExprS)]
-  [seqS    (e1 : ExprS) (e2 : ExprS)]
-  [letS    (name : symbol) (arg : ExprS) (body : ExprS)]
-  [equal?S (e1 : ExprS) (e2 : ExprS)]
-  [consS (car : ExprS) (cdr : ExprS)]
-  [carS (cell : ExprS) ]
-  [cdrS (cell : ExprS)]
+  [numS     (n : number)]
+  [boolS    (b : boolean)]
+  [idS      (s : symbol)]
+  [lamS     (arg : symbol) (body : ExprS)]
+  [appS     (fun : ExprS) (arg : ExprS)]
+  [plusS    (l : ExprS) (r : ExprS)]
+  [bminusS  (l : ExprS) (r : ExprS)]
+  [uminusS  (e : ExprS)]
+  [multS    (l : ExprS) (r : ExprS)]
+  [ifS      (c : ExprS) (y : ExprS) (n : ExprS)]
+  [seqS     (e1 : ExprS) (e2 : ExprS)]
+  [letS     (name : symbol) (arg : ExprS) (body : ExprS)]
+  [let*S    (name1 : symbol) (arg1 : ExprS) (name2 : symbol) (arg2 : ExprS) (body : ExprS)]
+  [letrecS  (name : symbol) (arg : ExprS) (body : ExprS)]
+  [equal?S  (e1 : ExprS) (e2 : ExprS)]
+  [consS    (car : ExprS) (cdr : ExprS)]
+  [carS     (cell : ExprS) ]
+  [cdrS     (cell : ExprS)]
   [displayS (exp : ExprS)]
-  [quoteS  (sym : symbol)]
+  [quoteS   (sym : symbol)]
   [nullS ]
 )
 
@@ -50,25 +54,27 @@
 ; Removing the sugar
 (define (desugar [as : ExprS]) : ExprC
   (type-case ExprS as
-    [numS    (n)        (numC n)]
-    [boolS   (b)        (boolC b)]
-    [idS     (s)        (idC s)]
-    [lamS    (a b)      (lamC a (desugar b))]
-    [appS    (fun arg)  (appC (desugar fun) (desugar arg))]
-    [plusS   (l r)      (plusC (desugar l) (desugar r))]
-    [multS   (l r)      (multC (desugar l) (desugar r))]
-    [bminusS (l r)      (plusC (desugar l) (multC (numC -1) (desugar r)))]
-    [uminusS (e)        (multC (numC -1) (desugar e))]
-    [ifS     (c s n)    (ifC (desugar c) (desugar s) (desugar n))]
-    [seqS    (e1 e2)    (seqC (desugar e1) (desugar e2))]
-    [letS    (n a b)    (letC n (desugar a) (desugar b))]
-    [equal?S (e1 e2)    (equal?C (desugar e1) (desugar e2))]
-    [consS   (car cdr) (consC (desugar car) (desugar cdr))]
-    [carS    (exp)     (carC (desugar  exp)) ]
-    [cdrS    (exp)     (cdrC (desugar  exp)) ]
+    [numS     (n)        (numC n)]
+    [boolS    (b)        (boolC b)]
+    [idS      (s)        (idC s)]
+    [lamS     (a b)      (lamC a (desugar b))]
+    [appS     (fun arg)  (appC (desugar fun) (desugar arg))]
+    [plusS    (l r)      (plusC (desugar l) (desugar r))]
+    [multS    (l r)      (multC (desugar l) (desugar r))]
+    [bminusS  (l r)      (plusC (desugar l) (multC (numC -1) (desugar r)))]
+    [uminusS  (e)        (multC (numC -1) (desugar e))]
+    [ifS      (c s n)    (ifC (desugar c) (desugar s) (desugar n))]
+    [seqS     (e1 e2)    (seqC (desugar e1) (desugar e2))]
+    [letS     (n a b)    (letC n (desugar a) (desugar b))]
+    [let*S    (n1 a1 n2 a2 b) (let*C n1 (desugar a1) n2 (desugar a2) (desugar b))]
+    [letrecS  (n a b)    (letC n (desugar a) (desugar b))]
+    [equal?S  (e1 e2)    (equal?C (desugar e1) (desugar e2))]
+    [consS    (car cdr) (consC (desugar car) (desugar cdr))]
+    [carS     (exp)     (carC (desugar  exp)) ]
+    [cdrS     (exp)     (cdrC (desugar  exp)) ]
     [displayS (exp)    (displayC (desugar exp))]
-    [quoteS (sym) (quoteC sym)]
-    [nullS  () (nullC)]
+    [quoteS   (sym) (quoteC sym)]
+    [nullS    () (nullC)]
     ))
 
 
@@ -126,7 +132,7 @@
     [nullV    ()  v]
     [quoteV   (s) v]
     [closV    (a b e) v]
-    [cellV    (f s) v] ; <---- PROVAVELMENTE VOU MUDAR ISSO
+    [cellV    (f s) v]
     [suspendV (b e) (strict (interp b e))]
   )
 )
@@ -172,6 +178,10 @@
                  [new-env (extend-env new-bind env)])
             (strict (interp body new-env)))]
 
+    [let*C (name1 arg1 name2 arg2 body) (numV 2)]
+
+    [letrecC (name arg body) (numV 2)]
+
     [equal?C (e1 e2) (boolV (equal? (strict (interp e1 env)) (strict (interp e2 env))))]
 
     ; Cell operations
@@ -211,9 +221,27 @@
              [(call) (appS (parse (second sl)) (parse (third sl)))]
              [(if) (ifS (parse (second sl)) (parse (third sl)) (parse (fourth sl)))]
              [(seq) (seqS (parse (second sl)) (parse (third sl)))]
+
              [(let) (letS (s-exp->symbol (first (s-exp->list (first (s-exp->list (second sl))))))
                           (parse (second (s-exp->list (first (s-exp->list (second sl))))))
                           (parse (third sl)))]
+
+             [(let*) (let*S
+                ; name1
+                (s-exp->symbol (first (s-exp->list (first (s-exp->list (second sl))))))
+                ; arg1
+                (parse (second (s-exp->list (first (s-exp->list (second sl))))))
+                ; name2
+                (s-exp->symbol (first (s-exp->list (second (s-exp->list (second sl))))))
+                ; arg2
+                (parse (second (s-exp->list (second (s-exp->list (second sl))))))
+                ; body
+                (parse (third sl)))]
+             [(letrec) (letrecS (s-exp->symbol (first (s-exp->list (first (s-exp->list (second sl))))))
+                          (parse (second (s-exp->list (first (s-exp->list (second sl))))))
+                          (parse (third sl)))]
+
+
              [(cons) (consS (parse (second sl)) (parse (third sl)))]
              [(car) (carS (parse (second sl)))]
              [(cdr) (cdrS (parse (second sl)))]
@@ -277,3 +305,9 @@
 (test (interpS '(equal? (lambda x (+ x x)) (lambda y (+ y y))))
       (boolV #f))
 
+(interpS '(let ((a (+ 3 4))) (seq (display a) (+ 3 4))))
+
+(interpS '(let ((a (+ 3 4)))
+              (seq (display a)
+                   (seq (+ a a)
+                        (display a)))))
