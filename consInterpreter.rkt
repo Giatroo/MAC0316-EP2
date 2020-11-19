@@ -127,13 +127,8 @@
 
 (define (strict [v : Value]) : Value
   (type-case Value v
-    [numV     (n) v]
-    [boolV    (b) v]
-    [nullV    ()  v]
-    [quoteV   (s) v]
-    [closV    (a b e) v]
-    [cellV    (f s) v]
     [suspendV (b e) (strict (interp b e))]
+    [else v]
   )
 )
 
@@ -176,18 +171,20 @@
     [letC (name arg body)
           (let* ([new-bind (bind name (box (suspendV arg env)))]
                  [new-env (extend-env new-bind env)])
-            (strict (interp body new-env)))]
+                  (interp body new-env))]
 
-    [let*C (name1 arg1 name2 arg2 body) (numV 2)]
+    [let*C (name1 arg1 name2 arg2 body)
+          (let ([new-env (extend-env (bind name1 (box (suspendV arg1 env))) env)])
+              (let ([new2-env (extend-env (bind name2 (box (suspendV arg2 new-env))) new-env)])
+                (interp body new2-env)))]
 
     [letrecC (name arg body) (numV 2)]
 
     [equal?C (e1 e2) (boolV (equal? (strict (interp e1 env)) (strict (interp e2 env))))]
 
     ; Cell operations
-    [consC (car cdr)
-           (cellV (interp car env) (interp cdr env))]
-    [carC  (exp) (cellV-first (interp exp env))]
+    [consC (car cdr) (cellV (suspendV car env) (suspendV cdr env))]
+    [carC  (exp) (strict (cellV-first (interp exp env)))]
     [cdrC  (exp) (cellV-second (interp exp env))]
     ;Display values
     [displayC (exp) (let ((value (interp exp env)))
