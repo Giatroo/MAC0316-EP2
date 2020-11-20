@@ -5,6 +5,7 @@
 (define-type ExprC
   [numC     (n : number)]
   [idC      (s : symbol)]
+  [boolC    (b : boolean)]
   [plusC    (l : ExprC) (r : ExprC)]
   [multC    (l : ExprC) (r : ExprC)]
   [lamC     (arg : symbol) (body : ExprC)]
@@ -15,9 +16,8 @@
   [letC     (name : symbol) (arg : ExprC) (body : ExprC)]
   [let*C    (name1 : symbol) (arg1 : ExprC) (name2 : symbol) (arg2 : ExprC) (body : ExprC)]
   [letrecC  (name : symbol) (arg : ExprC) (body : ExprC)]
-  [boolC    (b : boolean)]
   [consC    (car : ExprC) (cdr : ExprC)]
-  [carC     (cell : ExprC) ]
+  [carC     (cell : ExprC)]
   [cdrC     (cell : ExprC)]
   [displayC (exp : ExprC)]
   [quoteC   (sym : symbol)]
@@ -85,8 +85,9 @@
   [nullV ]
   [quoteV (symb : symbol)]
   [closV (arg : symbol) (body : ExprC) (env : Env)]
-  [cellV (first : Value) (second : Value)]
+  [cellV (first : (boxof Value)) (second : (boxof Value))]
   [suspendV (body : ExprC) (env : Env)]
+  [boxV (b : (boxof Value))]
   )
 
 
@@ -125,9 +126,10 @@
         [else
              (error 'num* "One of the arguments is not a number")]))
 
-(define (strict [v : Value]) : Value
+(define (strict [v : Value] [flag : boolean]) : Value
   (type-case Value v
-    [suspendV (b e) (strict (interp b e))]
+    [suspendV (b e) (if flag (strict (interp b e) flag) v)]
+    [boxV (b) (if flag (begin (set-box! b (strict (unbox b) flag)) (unbox b)) (unbox b))]
     [else v]
   )
 )
@@ -141,54 +143,70 @@
     [boolC (b) (boolV b)]
 
     ; IDs are retrieved from the Env and unboxed
-    [idC (n) (unbox (lookup n env))]
+    [idC (n) (boxV (lookup n env))]
+
 
     ; Lambdas evaluate to closures, which save the environment
     [lamC (a b) (closV a b env)]
 
     ; Application of function
     [appC (f a)
-          (local ([define f-value (strict (interp f env))])
-            (interp (closV-body f-value)
+          (let ([f-value (strict (interp f env) #t)])
+            (strict (interp (closV-body f-value)
                     (extend-env
                         (bind (closV-arg f-value) (box (suspendV a env)))
                         (closV-env f-value)
-                    )))]
+                    )) #f))]
+
 
     ; Sum two numbers using auxiliary function
-    [plusC (l r) (num+ (strict (interp l env)) (strict (interp r env)))]
+    [plusC (l r)
+        (num+ (strict (interp l env) #t)
+              (strict (interp r env) #t))]
 
     ; Multiplies two numbers using auxiliary function
-    [multC (l r) (num* (strict (interp l env)) (strict (interp r env)))]
+    [multC (l r)
+        (num* (strict (interp l env) #t)
+              (strict (interp r env) #t))]
+
 
     ; Conditional operator
-    [ifC (c s n) (if (zero? (numV-n (strict (interp c env)))) (interp n env) (interp s env))]
+    [ifC (c s n) (if (zero? (numV-n (strict (interp c env) #t))) (strict (interp n env) #f) (strict (interp s env) #f))]
 
     ; Sequence of operations
-    [seqC (b1 b2) (begin (interp b1 env) (interp b2 env))] ; No side effect between expressions!
+    [seqC (b1 b2) (begin (strict (interp b1 env) #f) (strict (interp b2 env) #f))] ; No side effect between expressions!
+
 
     ; Declaration of variable
     [letC (name arg body)
           (let* ([new-bind (bind name (box (suspendV arg env)))]
                  [new-env (extend-env new-bind env)])
-                  (interp body new-env))]
+                 (strict (interp body new-env) #f))]
 
     [let*C (name1 arg1 name2 arg2 body)
-          (let ([new-env (extend-env (bind name1 (box (suspendV arg1 env))) env)])
-              (let ([new2-env (extend-env (bind name2 (box (suspendV arg2 new-env))) new-env)])
-                (interp body new2-env)))]
+      (strict (interp (letC name1 arg1 (letC name2 arg2 body)) env) #f)]
 
-    [letrecC (name arg body) (numV 2)]
+    [letrecC (n a b)
+      (let* ([bx (box (nullV))] [new-env (extend-env [bind n bx] env)])
+          (begin (set-box! bx (suspendV a new-env)) (strict (interp b new-env) #f)))]
 
-    [equal?C (e1 e2) (boolV (equal? (strict (interp e1 env)) (strict (interp e2 env))))]
+    [equal?C (e1 e2) (boolV (equal? (strict (interp e1 env) #t) (strict (interp e2 env) #t)))]
 
     ; Cell operations
-    [consC (car cdr) (cellV (suspendV car env) (suspendV cdr env))]
-    [carC  (exp) (strict (cellV-first (interp exp env)))]
-    [cdrC  (exp) (cellV-second (interp exp env))]
+    [consC (car cdr) (cellV (box (suspendV car env)) (box (suspendV cdr env)))]
+
+
+    [carC (exp)
+      (let* ([x (strict (interp exp env) #t)] [caixa (cellV-first (strict x #t))])
+          (begin (set-box! caixa (strict (unbox caixa) #t)) (unbox caixa)))]
+
+    [cdrC (exp)
+      (let* ([x (strict (interp exp env) #t)] [caixa (cellV-second x)])
+          (begin (set-box! caixa (strict (unbox caixa) #t)) (unbox caixa)))]
+
     ;Display values
-    [displayC (exp) (let ((value (interp exp env)))
-                      (begin (print-value (interp exp env))
+    [displayC (exp) (let ((value (strict (interp exp env) #f)))
+                      (begin (print-value (strict (interp exp env) #f))
                              (display ";") ; no newline in plai-typed, we use ";"
                              value))]
     ;Symbol
@@ -214,9 +232,12 @@
              [(*) (multS (parse (second sl)) (parse (third sl)))]
              [(-) (bminusS (parse (second sl)) (parse (third sl)))]
              [(~) (uminusS (parse (second sl)))]
+
              [(lambda) (lamS (s-exp->symbol (second sl)) (parse (third sl)))] ; definição
              [(call) (appS (parse (second sl)) (parse (third sl)))]
+
              [(if) (ifS (parse (second sl)) (parse (third sl)) (parse (fourth sl)))]
+
              [(seq) (seqS (parse (second sl)) (parse (third sl)))]
 
              [(let) (letS (s-exp->symbol (first (s-exp->list (first (s-exp->list (second sl))))))
@@ -234,6 +255,7 @@
                 (parse (second (s-exp->list (second (s-exp->list (second sl))))))
                 ; body
                 (parse (third sl)))]
+
              [(letrec) (letrecS (s-exp->symbol (first (s-exp->list (first (s-exp->list (second sl))))))
                           (parse (second (s-exp->list (first (s-exp->list (second sl))))))
                           (parse (third sl)))]
@@ -243,8 +265,10 @@
              [(car) (carS (parse (second sl)))]
              [(cdr) (cdrS (parse (second sl)))]
              [(display)(displayS (parse (second sl)))]
+
              [(quote) (quoteS (s-exp->symbol (second sl)))]
              [(equal?) (equal?S (parse (second sl)) (parse (third sl)))]
+
              [else (error 'parse "invalid list input")])))]
     [else (error 'parse "invalid input")]))
 
@@ -274,21 +298,22 @@
                     (display ")")
                     )
              ]
-      [nullV () (display '())]
+      [nullV    () (display '())]
+      [boxV     (b)   (display b)]
       [suspendV (b e) (display "suspV")]
    )
 )
 
 (define (print-list cell) : void
   (begin
-         (print-value (cellV-first cell))
+         (print-value (unbox (cellV-first cell)))
          (display " ")
-         (let ([rest (cellV-second cell)])
+         (let ([rest (unbox (cellV-second cell))])
            (type-case Value rest
              [nullV () (display "") ]; null at the end of the list is not printed
              [cellV (first second) (print-list rest)]
              [else (begin (display ".")
-                        (print-value (cellV-second cell)))]))
+                        (print-value (unbox (cellV-second cell))))]))
          )
   )
 
