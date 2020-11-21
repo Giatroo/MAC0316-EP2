@@ -54,40 +54,40 @@
 ; Removing the sugar
 (define (desugar [as : ExprS]) : ExprC
   (type-case ExprS as
-    [numS     (n)        (numC n)]
-    [boolS    (b)        (boolC b)]
-    [idS      (s)        (idC s)]
-    [lamS     (a b)      (lamC a (desugar b))]
-    [appS     (fun arg)  (appC (desugar fun) (desugar arg))]
-    [plusS    (l r)      (plusC (desugar l) (desugar r))]
-    [multS    (l r)      (multC (desugar l) (desugar r))]
-    [bminusS  (l r)      (plusC (desugar l) (multC (numC -1) (desugar r)))]
-    [uminusS  (e)        (multC (numC -1) (desugar e))]
-    [ifS      (c s n)    (ifC (desugar c) (desugar s) (desugar n))]
-    [seqS     (e1 e2)    (seqC (desugar e1) (desugar e2))]
-    [letS     (n a b)    (letC n (desugar a) (desugar b))]
+    [numS     (n)             (numC n)]
+    [boolS    (b)             (boolC b)]
+    [idS      (s)             (idC s)]
+    [lamS     (a b)           (lamC a (desugar b))]
+    [appS     (fun arg)       (appC (desugar fun) (desugar arg))]
+    [plusS    (l r)           (plusC (desugar l) (desugar r))]
+    [multS    (l r)           (multC (desugar l) (desugar r))]
+    [bminusS  (l r)           (plusC (desugar l) (multC (numC -1) (desugar r)))]
+    [uminusS  (e)             (multC (numC -1) (desugar e))]
+    [ifS      (c s n)         (ifC (desugar c) (desugar s) (desugar n))]
+    [seqS     (e1 e2)         (seqC (desugar e1) (desugar e2))]
+    [letS     (n a b)         (letC n (desugar a) (desugar b))]
     [let*S    (n1 a1 n2 a2 b) (let*C n1 (desugar a1) n2 (desugar a2) (desugar b))]
-    [letrecS  (n a b)    (letC n (desugar a) (desugar b))]
-    [equal?S  (e1 e2)    (equal?C (desugar e1) (desugar e2))]
-    [consS    (car cdr) (consC (desugar car) (desugar cdr))]
-    [carS     (exp)     (carC (desugar  exp)) ]
-    [cdrS     (exp)     (cdrC (desugar  exp)) ]
-    [displayS (exp)    (displayC (desugar exp))]
-    [quoteS   (sym) (quoteC sym)]
-    [nullS    () (nullC)]
+    [letrecS  (n a b)         (letrecC n (desugar a) (desugar b))]
+    [equal?S  (e1 e2)         (equal?C (desugar e1) (desugar e2))]
+    [consS    (car cdr)       (consC (desugar car) (desugar cdr))]
+    [carS     (exp)           (carC (desugar  exp))]
+    [cdrS     (exp)           (cdrC (desugar  exp))]
+    [displayS (exp)           (displayC (desugar exp))]
+    [quoteS   (sym)           (quoteC sym)]
+    [nullS    ()              (nullC)]
     ))
 
 
 ; We need a new value for the box
 (define-type Value
-  [numV  (n : number)]
-  [boolV (b : boolean)]
-  [nullV ]
-  [quoteV (symb : symbol)]
-  [closV (arg : symbol) (body : ExprC) (env : Env)]
-  [cellV (first : (boxof Value)) (second : (boxof Value))]
+  [numV     (n : number)]
+  [boolV    (b : boolean)]
+  [quoteV   (symb : symbol)]
+  [closV    (arg : symbol) (body : ExprC) (env : Env)]
+  [cellV    (first : (boxof Value)) (second : (boxof Value))]
   [suspendV (body : ExprC) (env : Env)]
-  [boxV (b : (boxof Value))]
+  [boxV     (b : (boxof Value))]
+  [nullV ]
   )
 
 
@@ -129,8 +129,8 @@
 (define (strict [v : Value] [flag : boolean]) : Value
   (type-case Value v
     [suspendV (b e) (if flag (strict (interp b e) flag) v)]
-    [boxV (b) (if flag (begin (set-box! b (strict (unbox b) flag)) (unbox b)) (unbox b))]
-    [else v]
+    [boxV     (b)   (if flag (begin (set-box! b (strict (unbox b) flag)) (unbox b)) (unbox b))]
+    [else           v]
   )
 )
 
@@ -156,7 +156,7 @@
                     (extend-env
                         (bind (closV-arg f-value) (box (suspendV a env)))
                         (closV-env f-value)
-                    )) #f))]
+                    )) #t))]
 
 
     ; Sum two numbers using auxiliary function
@@ -171,30 +171,32 @@
 
 
     ; Conditional operator
-    [ifC (c s n) (if (zero? (numV-n (strict (interp c env) #t))) (strict (interp n env) #f) (strict (interp s env) #f))]
+    [ifC (c s n) (if (boolV-b (strict (interp c env) #t)) (strict (interp s env) #f) (strict (interp n env) #f))]
 
     ; Sequence of operations
-    [seqC (b1 b2) (begin (strict (interp b1 env) #f) (strict (interp b2 env) #f))] ; No side effect between expressions!
+    [seqC (b1 b2) (begin (strict (interp b1 env) #f) (strict (interp b2 env) #f))]
 
 
     ; Declaration of variable
     [letC (name arg body)
-          (let* ([new-bind (bind name (box (suspendV arg env)))]
-                 [new-env (extend-env new-bind env)])
-                 (strict (interp body new-env) #f))]
+      (let* ([new-bind (bind name (box (suspendV arg env)))]
+             [new-env (extend-env new-bind env)])
+            (strict (interp body new-env) #f))]
 
     [let*C (name1 arg1 name2 arg2 body)
       (strict (interp (letC name1 arg1 (letC name2 arg2 body)) env) #f)]
 
     [letrecC (n a b)
-      (let* ([bx (box (nullV))] [new-env (extend-env [bind n bx] env)])
-          (begin (set-box! bx (suspendV a new-env)) (strict (interp b new-env) #f)))]
+      (let* ([mybox (box (nullV))] [new-env (extend-env [bind n mybox] env)])
+          (begin (set-box! mybox (suspendV a new-env)) (strict (interp b new-env) #f)))]
 
-    [equal?C (e1 e2) (boolV (equal? (strict (interp e1 env) #t) (strict (interp e2 env) #t)))]
+
+    [equal?C (e1 e2)
+      (boolV (equal? (strict (interp e1 env) #t) (strict (interp e2 env) #t)))]
+
 
     ; Cell operations
     [consC (car cdr) (cellV (box (suspendV car env)) (box (suspendV cdr env)))]
-
 
     [carC (exp)
       (let* ([x (strict (interp exp env) #t)] [caixa (cellV-first (strict x #t))])
@@ -204,16 +206,18 @@
       (let* ([x (strict (interp exp env) #t)] [caixa (cellV-second x)])
           (begin (set-box! caixa (strict (unbox caixa) #t)) (unbox caixa)))]
 
+
     ;Display values
     [displayC (exp) (let ((value (strict (interp exp env) #f)))
                       (begin (print-value (strict (interp exp env) #f))
                              (display ";") ; no newline in plai-typed, we use ";"
                              value))]
+
     ;Symbol
     [quoteC (sym) (quoteV sym)]
+
     ;Null
     [nullC  () (nullV)]
-
     )
   )
 
@@ -280,8 +284,8 @@
 (define (print-value [value : Value ] ) : void
     (type-case Value value
       [numV   (n)     (display n)]
-      [boolV  (b)    (display b)]
-      [quoteV (symb) (display symb)]
+      [boolV  (b)     (display b)]
+      [quoteV (symb)  (display symb)]
       [closV  (arg body env)
              (begin (display "<<")
                     (display "lambda(")
@@ -298,7 +302,7 @@
                     (display ")")
                     )
              ]
-      [nullV    () (display '())]
+      [nullV    ()    (display '())]
       [boxV     (b)   (display b)]
       [suspendV (b e) (display "suspV")]
    )
@@ -317,7 +321,10 @@
          )
   )
 
-; Exemplos
+; Exemplos e testes
+; IMPORTANTE: Alguns desses testes foram compartilhados entre os alunos.
+; Alguns testes foram criados por mim e disponibilizados aos outros alunos
+; e alguns testes foram criados por outros alunos e disponibilizados para mim.
 (test (interpS '(equal? 1 1)) (boolV #t))
 
 (test (interpS '(equal? 1 2)) (boolV #f))
@@ -328,8 +335,54 @@
       (boolV #f))
 
 (interpS '(let ((a (+ 3 4))) (seq (display a) (+ 3 4))))
+; should be equal to:
+; suspV;(numV 7)
 
 (interpS '(let ((a (+ 3 4)))
               (seq (display a)
                    (seq (+ a a)
                         (display a)))))
+; should be equal to:
+; suspV;7;(numV 7)
+
+(interpS '(let* ((a (+ 3 4)) (b a))
+              (seq (display a)
+                   (seq (+ b b)
+                        (display a)))))
+
+; should be equal to:
+; suspV;7;(numV 7)
+
+;(interpS '(letrec ((f (lambda x (+ x (call f (- x 1))))))
+;             (call f 5)))
+; infinite function example
+
+(test (interpS '(letrec ((f (lambda x (if (equal? x 0) 0 (+ x (call f (- x 1)))))))
+             (call f 5)))
+      (numV 15))
+
+(test (interpS '(letrec ((f (lambda x (if (equal? x 1) 1 (* x (call f (- x 1)))))))
+             (call f 5)))
+      (numV 120))
+
+(test (interpS '(call (lambda x x) 1))
+    (numV 1))
+
+; Os testes a seguir estão comentados para não ficar muita coisa na tela e não
+; demorara na hora de carregar o código.
+; Eles foram disponibilizados pelos alunos Lourenço e Miguel.
+;(interpS '(cons 1 (cons 2 ())))
+;(interpS '(car (cons 1 (cons 2 ()))))
+;(interpS '(+ (car (cons 1 (cons 2 ()))) 2))
+;(interpS '(let ([x (+ 3 3)]) (display x)))
+;(interpS '(let ([x (+ 3 3)]) (seq (+ x x) x)))
+;(interpS '(let ([x (+ 3 3)]) (call (lambda x (+ x x)) x)))
+;(interpS '(let ([x (lambda y (+ y y))]) (+ (call x 2)  (call x 2))))
+;(interpS '(let* ((x (+ 3 3)) (y x)) (seq (display y) (seq (display x) x))))
+;(interpS '(let* ((x (+ 3 3)) (y x)) (seq (display x) (seq (display y) x))))
+;(interpS '(call (car (cdr (cons 1 (cons (lambda x (+ x x)) ())))) 2))
+;(interpS '(let ((y (call (lambda x (+ x x)) 6))) (call (lambda x (+ x x)) y)))
+;(interpS '(let ((y (call (lambda x (+ x x)) 6))) (call (lambda x (+ x x)) 5)))
+;(interpS '(let ((y (call (lambda x (+ x x)) 6))) (call (lambda x (cons 1 ())) 1)))
+;(interpS '(let ((y (call (lambda x (+ x x)) 6))) (call (lambda x 5) y)))
+;(interpS '(call (lambda x (+ x x)) 1))
